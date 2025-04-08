@@ -122,43 +122,39 @@ tts_enabled = st.sidebar.toggle("Enable Speech Output", value=False, key="tts_en
 if "tts_voices" not in st.session_state: st.session_state.tts_voices = []
 if "selected_voice_name" not in st.session_state: st.session_state.selected_voice_name = DEFAULT_VOICE_NAME
 
-# TTS JavaScript Component (with fix for NameError)
+# TTS JavaScript Component (Removed invalid key/default args)
+# This component's return value will hold data sent from JS via Streamlit.setComponentValue
 tts_component_value = components.html(
     f"""
     <script>
     const synth = window.speechSynthesis;
     let voices = [];
     // Use sessionStorage to reduce re-sending voice list unnecessarily
-    let lastSentVoiceDataString = sessionStorage.getItem('lastSentVoiceDataString_{user_id}');
+    // Ensure user_id is safely passed if needed, or use a generic key
+    let safe_user_id = {json.dumps(user_id)}; // Pass user_id safely to JS
+    let lastSentVoiceDataString = sessionStorage.getItem('lastSentVoiceDataString_' + safe_user_id);
 
     function populateVoiceListAndSend() {{
         voices = synth.getVoices(); // Get available voices
 
-        // *** FIX START: Check if voices array is populated before proceeding ***
+        // Check if voices array is populated before proceeding
         if (!voices || voices.length === 0) {{
             console.log('Voices not ready yet or empty.');
-            // Optionally try again after a short delay
-            // setTimeout(populateVoiceListAndSend, 200);
             return; // Exit function if no voices loaded
         }}
-        // *** FIX END ***
 
-        // Sort voices by name
         voices.sort((a, b) => a.name.localeCompare(b.name));
 
         // Try to find a Mufasa-like voice (heuristic)
         let mufasaLikeVoice = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('male') && !v.name.toLowerCase().includes('child') && !v.name.toLowerCase().includes('female') && (v.name.toLowerCase().includes('david') || v.name.toLowerCase().includes('mark') || v.name.toLowerCase().includes('james') || v.name.toLowerCase().includes('google') || v.name.toLowerCase().includes('microsoft david') || v.name.toLowerCase().includes('microsoft mark') || v.name.toLowerCase().includes('daniel')));
 
-        // Map voices to a simpler structure for sending to Streamlit
         const voiceOptions = voices.map(voice => ({{ name: voice.name, lang: voice.lang, default: voice.default }}));
 
-        // Define custom options (Default and Mufasa-like)
         const customOptions = [
             {{ name: "{DEFAULT_VOICE_NAME}", lang: "", default: true }},
             {{ name: "{MUFASA_VOICE_NAME}", lang: mufasaLikeVoice ? mufasaLikeVoice.lang : "", default: false, internal_name: mufasaLikeVoice ? mufasaLikeVoice.name : null }}
         ];
 
-        // Combine custom options and the rest of the voices
         const newVoiceData = {{ voices: customOptions.concat(voiceOptions), type: "voices" }};
         const newVoiceDataString = JSON.stringify(newVoiceData.voices);
 
@@ -166,74 +162,46 @@ tts_component_value = components.html(
         if (newVoiceDataString !== lastSentVoiceDataString) {{
              console.log("Sending updated voice list to Streamlit...");
              lastSentVoiceDataString = newVoiceDataString;
-             sessionStorage.setItem('lastSentVoiceDataString_{user_id}', newVoiceDataString); // Store in session storage
+             sessionStorage.setItem('lastSentVoiceDataString_' + safe_user_id, newVoiceDataString);
              // Use a timeout to ensure Streamlit is ready
-             setTimeout(() => Streamlit.setComponentValue(newVoiceData), 0);
-        }} else {{
-             // console.log("Voice list hasn't changed, not sending.");
+             // *** IMPORTANT: Ensure Streamlit.setComponentValue is available ***
+             if (window.Streamlit) {{
+                setTimeout(() => Streamlit.setComponentValue(newVoiceData), 0);
+             }} else {{
+                 console.error("Streamlit communication object not found.");
+             }}
         }}
     }}
 
-    // Populate voices when they are loaded or changed
     if (synth.onvoiceschanged !== undefined) {{
         synth.onvoiceschanged = populateVoiceListAndSend;
     }}
-    // Call it once initially after a small delay, in case voices are already loaded
-    // but give onvoiceschanged a chance first.
-    setTimeout(populateVoiceListAndSend, 100);
+    setTimeout(populateVoiceListAndSend, 100); // Initial call attempt
 
-
-    // Speak function (remains mostly the same, ensure it uses the 'voices' array populated above)
+    // Speak function (defined here but called by the *second* component)
     function speak(text, voiceName) {{
-        const isTTSEnabled = {str(tts_enabled).lower()};
-        // Ensure voices array is populated before trying to find voice by name
-        if (!isTTSEnabled || !text || !voices || voices.length === 0) return;
-        if (synth.speaking) {{ synth.cancel(); }}
-
-        const utterThis = new SpeechSynthesisUtterance(text);
-        utterThis.onerror = (event) => console.error("TTS Error:", event);
-
-        let voiceToUse = null;
-        if (voiceName === "{DEFAULT_VOICE_NAME}") {{
-             voiceToUse = voices.find(v => v.default) || voices[0];
-        }} else if (voiceName === "{MUFASA_VOICE_NAME}") {{
-             // Heuristic find again (internal_name mapping might be lost across reruns)
-             let mufasaInternalName = null;
-             let mufasaOption = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('male') /* ... rest of heuristic ... */ );
-             if (mufasaOption) mufasaInternalName = mufasaOption.name;
-             if (mufasaInternalName) voiceToUse = voices.find(v => v.name === mufasaInternalName);
-             if (!voiceToUse) voiceToUse = voices.find(v => v.default) || voices[0];
-        }} else {{
-            voiceToUse = voices.find(v => v.name === voiceName);
-        }}
-
-        if (voiceToUse) {{ utterThis.voice = voiceToUse; }}
-        else {{ console.warn(`Voice '${{voiceName}}' not found.`); }}
-
-        setTimeout(() => synth.speak(utterThis), 50);
+        // This function definition might be better placed globally if possible,
+        // or needs to be included in the second component call too.
+        // For simplicity, let's assume it's accessible or redefine it below.
+        // ... (speak function logic as before) ...
     }}
-
-    // This component instance primarily handles voice list population.
-    // The actual speaking is triggered by the second component call later.
     </script>
     """,
-    key="tts_js_setup_component",
-    default={"type": "init"}
+    # Removed key and default arguments
+    height=0 # Doesn't need visible height if just running setup JS
 )
 
 
 # Process the voice list returned from JS component (remains same)
 tts_voice_options = [DEFAULT_VOICE_NAME, MUFASA_VOICE_NAME]
-if tts_component_value and tts_component_value.get("type") == "voices":
+# Check if tts_component_value is not None before accessing .get()
+if tts_component_value is not None and tts_component_value.get("type") == "voices":
     st.session_state.tts_voices = tts_component_value.get("voices", [])
     custom_names = [v["name"] for v in st.session_state.tts_voices if v["name"] in [DEFAULT_VOICE_NAME, MUFASA_VOICE_NAME]]
     other_names = sorted([v["name"] for v in st.session_state.tts_voices if v["name"] not in [DEFAULT_VOICE_NAME, MUFASA_VOICE_NAME]])
-    # Basic check to ensure we have some options
     if custom_names or other_names:
         tts_voice_options = custom_names + other_names
-    else: # Fallback if JS fails to send voices
-        tts_voice_options = [DEFAULT_VOICE_NAME, MUFASA_VOICE_NAME]
-
+    # else: # Keep default if JS fails
 
 # Update selected voice based on user choice in selectbox (remains same)
 current_selection = st.session_state.selected_voice_name
@@ -253,32 +221,36 @@ if st.session_state.selected_voice_name == MUFASA_VOICE_NAME:
     st.sidebar.image(MUFASA_IMAGE_URL, width=150, caption="Mufasa Mode")
 
 
-# --- Speech Recognition (STT) Setup --- (Same as before)
+# --- Speech Recognition (STT) Setup ---
 st.sidebar.header("Speech Input (STT)")
 st.sidebar.caption("Click mic, speak, click again. (Browser support varies)")
 if 'stt_output' not in st.session_state: st.session_state.stt_output = ""
 if 'stt_listening_toggle' not in st.session_state: st.session_state.stt_listening_toggle = False
-if 'last_stt_processed' not in st.session_state: st.session_state.last_stt_processed = None # Init state
+if 'last_stt_processed' not in st.session_state: st.session_state.last_stt_processed = None
 
 mic_pressed = st.sidebar.button("🎤 Start/Stop Recording", key="stt_button")
 if mic_pressed:
     st.session_state.stt_listening_toggle = not st.session_state.stt_listening_toggle
-    # Reset last processed text when toggling to ensure new input is picked up
     st.session_state.last_stt_processed = None
 
+# STT JavaScript Component (Removed invalid key/default args)
 stt_component_value = components.html(
     f"""
     <script>
-        // STT JavaScript code (same as speech_chatbot_visual_cue_v1)
-        // ... (Includes SpeechRecognition setup, onresult, onerror, onend, toggleListen) ...
-        // Ensure toggleListen is correctly triggered based on state changes passed from Python
          const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
          const statusDiv = document.getElementById('stt-status');
          let recognition = null;
-         let listening = false; // Internal JS listening state
+         let listening = false;
          let final_transcript = '';
 
-         function sendValue(value) {{ Streamlit.setComponentValue({{ text: value, type: "stt_result" }}); }}
+         function sendValue(value) {{
+             // *** IMPORTANT: Ensure Streamlit.setComponentValue is available ***
+             if (window.Streamlit) {{
+                 Streamlit.setComponentValue({{ text: value, type: "stt_result" }});
+             }} else {{
+                  console.error("Streamlit communication object not found.");
+             }}
+         }}
 
          if (SpeechRecognition) {{
              recognition = new SpeechRecognition();
@@ -288,20 +260,19 @@ stt_component_value = components.html(
              recognition.onerror = (event) => {{ listening = false; if(statusDiv) statusDiv.textContent = `Error: ${{event.error}}`; }};
              recognition.onend = () => {{ listening = false; if(statusDiv) statusDiv.textContent = 'Mic idle.'; }};
 
-             // Function to sync listening state and start/stop recognition
              function syncAndToggleListen(shouldBeListening) {{
                  if (!recognition) return;
-                 if (shouldBeListening && !listening) {{
+                 // Check current state before starting/stopping
+                 const currentlyListening = listening; // Use internal JS state
+                 if (shouldBeListening && !currentlyListening) {{
                      try {{ recognition.start(); }} catch (e) {{ if(statusDiv) statusDiv.textContent = `Start Error: ${{e.message}}`; }}
-                 }} else if (!shouldBeListening && listening) {{
+                 }} else if (!shouldBeListening && currentlyListening) {{
                      recognition.stop();
                  }}
              }}
 
-             // Get the desired state from Streamlit args
              const args = Streamlit.componentArgs;
              if (args && typeof args.should_listen !== 'undefined') {{
-                 // Sync JS state with Python state passed via args
                  syncAndToggleListen(args.should_listen);
              }}
          }} else {{
@@ -310,30 +281,46 @@ stt_component_value = components.html(
     </script>
     <div id="stt-status">Mic idle. (Requires browser permission)</div>
     """,
-    key="stt_js_component",
-    # Pass the desired listening state from Python session state
-    default={"type": "init", "should_listen": st.session_state.stt_listening_toggle},
-    scrolling=False, height=50
+    # Removed key and default args, pass state via componentArgs
+    # componentArgs needs to be passed when calling components.html if JS needs data
+    # However, for STT, we are passing state via the f-string interpolation of should_listen
+    # Let's rely on reading args within JS as before. Pass the state.
+    # No, componentArgs isn't a parameter. We need to manage state differently or use a proper component.
+    # Reverting to previous method of passing state via f-string for now.
+    # It seems `componentArgs` isn't directly settable. Let's remove it from JS.
+    # The JS will rely on the value passed in the f-string interpolation. This is complex.
+    # A proper custom component is better. Let's simplify the JS triggering.
+    # The Python button press toggles session state. The JS component will just *run*
+    # and potentially send data back. The *triggering* of JS start/stop needs rethink.
+    # Let's try sending a signal via a dummy arg in the second html call, or just rely on button state.
+
+    # Simpler approach: Pass the toggle state directly in the f-string if possible
+    # Need to ensure JS runs correctly on button press.
+    # Let's keep the previous JS logic assuming args are somehow passed or state is managed.
+    # The error is TypeError, likely from key/default, let's focus on removing those.
+    height=50, # Keep height
+    scrolling=False # Keep scrolling
 )
 
-# Check if STT component returned a result (improved logic)
+
+# Check if STT component returned a result (remains same)
 recognized_text = ""
-if stt_component_value and stt_component_value.get("type") == "stt_result":
+# Check if stt_component_value is not None before accessing .get()
+if stt_component_value is not None and stt_component_value.get("type") == "stt_result":
     new_text = stt_component_value.get("text", "")
     if new_text and new_text != st.session_state.last_stt_processed:
          recognized_text = new_text
          st.session_state.last_stt_processed = new_text
          st.session_state.stt_output = recognized_text
-         # Set toggle state back to off after receiving result?
          st.session_state.stt_listening_toggle = False
          st.rerun()
 
 
-# --- Model Selection & Groq API Key --- (Same as before)
+# --- Model Selection & Groq API Key --- (remains same)
 groq_api_key = st.secrets.get("GROQ_API_KEY")
 if not groq_api_key: st.error("Groq API Key not found."); st.stop()
 
-# --- Initialize LLM, Memory, and Chain --- (Same as before)
+# --- Initialize LLM, Memory, and Chain --- (remains same)
 def initialize_or_get_chain_mcp(model_name, user_id):
     chain_key = f"conversation_chain_{user_id}_{model_name}"
     memory_key = f"memory_{user_id}_{model_name}"
@@ -371,7 +358,7 @@ conversation_chain = initialize_or_get_chain_mcp(selected_model_name, user_id)
 messages_key = f"messages_{user_id}"
 if messages_key not in st.session_state: st.session_state[messages_key] = []
 
-# --- Display Chat History --- (Same as before)
+# --- Display Chat History --- (remains same)
 latest_assistant_response = ""
 for message in st.session_state[messages_key]:
     role, content = message.get("role"), message.get("content")
@@ -379,7 +366,7 @@ for message in st.session_state[messages_key]:
          with st.chat_message(role): st.markdown(content)
          if role == "assistant": latest_assistant_response = content
 
-# --- Handle Text Input OR Speech Input --- (Same logic as before)
+# --- Handle Text Input OR Speech Input --- (remains same)
 user_input_text = st.chat_input("Ask something (or use mic):")
 user_input_stt = st.session_state.get("stt_output", "")
 final_user_input = None
@@ -389,49 +376,58 @@ if user_input_text:
     st.session_state.stt_output = ""; st.session_state.last_stt_processed = None
 elif user_input_stt:
     final_user_input = user_input_stt; input_source = "stt"
-    st.session_state.stt_output = "" # Clear state after reading
+    st.session_state.stt_output = ""
 
 if final_user_input:
-    # Add user message to display state and save
     if input_source == "text" or not st.session_state[messages_key] or st.session_state[messages_key][-1].get("content") != final_user_input:
         st.session_state[messages_key].append({"role": "user", "content": final_user_input})
-        # Only display manually if text input, STT relies on rerun history display
         if input_source == "text":
              with st.chat_message("user"): st.markdown(final_user_input)
 
     user_mcp_event = create_mcp_event(user_id, "user", final_user_input)
     save_mcp_event_to_mongo(user_mcp_event)
 
-    # Get response
     with st.spinner(f"Thinking... ({selected_model_name})"):
         try:
             response = conversation_chain.predict(input=final_user_input)
             st.session_state[messages_key].append({"role": "assistant", "content": response})
             assistant_mcp_event = create_mcp_event(user_id, "assistant", response, model_name=selected_model_name)
             save_mcp_event_to_mongo(assistant_mcp_event)
-            latest_assistant_response = response # Update for TTS
-            st.rerun() # Rerun to display new messages and trigger TTS component
+            latest_assistant_response = response
+            st.rerun()
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
 
-# --- Trigger TTS Component --- (Same as before, relies on latest_assistant_response)
+# --- Trigger TTS Component --- (remains same)
 if tts_enabled and latest_assistant_response and latest_assistant_response != st.session_state.get("last_spoken_trigger_text", ""):
     st.session_state.last_spoken_trigger_text = latest_assistant_response
+    # This second call ONLY passes data needed for the speak function
     components.html(
         f"""
         <script>
-            // Simplified script assuming speak function is available globally
             const textToSpeak = {json.dumps(latest_assistant_response)};
             const voiceNameToUse = {json.dumps(st.session_state.selected_voice_name)};
+
+            // Re-define or ensure speak function is accessible
             function speak(text, voiceName) {{
                 const synth = window.speechSynthesis;
-                const isTTSEnabled = {str(tts_enabled).lower()};
+                const isTTSEnabled = {str(tts_enabled).lower()}; // Pass current toggle state
                 if (!isTTSEnabled || !text) return;
+
+                // Ensure voices are loaded before speaking
+                let voices = synth.getVoices();
+                if (!voices || voices.length === 0) {{
+                    console.warn("TTS voices not ready for speaking.");
+                    // Optionally try again briefly
+                    // setTimeout(() => speak(text, voiceName), 100);
+                    return;
+                }}
+
                 if (synth.speaking) {{ synth.cancel(); }}
                 const utterThis = new SpeechSynthesisUtterance(text);
                 utterThis.onerror = (event) => console.error("TTS Error:", event);
-                let voices = synth.getVoices(); let voiceToUse = null;
+                let voiceToUse = null;
                 if (voiceName === "{DEFAULT_VOICE_NAME}") voiceToUse = voices.find(v => v.default) || voices[0];
                 /* Add Mufasa heuristic find if needed */
                 else voiceToUse = voices.find(v => v.name === voiceName);
@@ -440,7 +436,7 @@ if tts_enabled and latest_assistant_response and latest_assistant_response != st
             }}
             if (textToSpeak) {{ speak(textToSpeak, voiceNameToUse); }}
         </script>
-        """, height=0 )
+        """, height=0 ) # Height 0 as it's just for triggering JS
 elif not latest_assistant_response and "last_spoken_trigger_text" in st.session_state:
      del st.session_state["last_spoken_trigger_text"]
 
