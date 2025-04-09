@@ -110,7 +110,6 @@ st.sidebar.markdown(f"**User ID:** `{user_id}`")
 # --- MCP Structure & MongoDB Functions ---
 def create_mcp_event(user_id, role, content, model_name=None, metadata=None):
     """Creates a dictionary representing an MCP-like event."""
-    # *** FIX: Removed invalid /* ... */ comment syntax ***
     event = {
         "user_id": user_id,
         "event_id": str(uuid.uuid4()), # Unique ID for each event
@@ -198,13 +197,11 @@ tts_component_value = components.html(
     let voices = [];
     let safe_user_id = {json.dumps(user_id)};
     let lastSentVoiceDataString = sessionStorage.getItem('lastSentVoiceDataString_' + safe_user_id);
-    // console.log("TTS Setup Component: Running"); // Reduce console noise
 
     function populateVoiceListAndSend() {{
         try {{
             voices = synth.getVoices();
             if (!voices || voices.length === 0) {{ return; }}
-            // console.log('TTS Setup: Got', voices.length, 'voices.'); // Reduce noise
             voices.sort((a, b) => a.name.localeCompare(b.name));
             let mufasaLikeVoice = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('male') /* ...heuristic... */);
             const voiceOptions = voices.map(voice => ({{ name: voice.name, lang: voice.lang, default: voice.default }}));
@@ -215,7 +212,6 @@ tts_component_value = components.html(
             const newVoiceData = {{ voices: customOptions.concat(voiceOptions), type: "voices" }};
             const newVoiceDataString = JSON.stringify(newVoiceData.voices);
             if (newVoiceDataString !== lastSentVoiceDataString) {{
-                 // console.log("TTS Setup: Sending updated voice list..."); // Reduce noise
                  lastSentVoiceDataString = newVoiceDataString;
                  sessionStorage.setItem('lastSentVoiceDataString_' + safe_user_id, newVoiceDataString);
                  if (window.Streamlit) {{ setTimeout(() => Streamlit.setComponentValue(newVoiceData), 0); }}
@@ -278,13 +274,11 @@ stt_component_value = components.html(
          const shouldBeListening = {str(st.session_state.stt_listening_toggle).lower()};
          let recognition = window.stt_recognition;
          window.stt_listening = window.stt_listening || false;
-         // console.log("STT Component: Running. Should listen:", shouldBeListening, "Currently listening:", window.stt_listening); // Reduce noise
 
-         function sendValue(value) {{ /* ... */ if (window.Streamlit) Streamlit.setComponentValue({{ text: value, type: "stt_result" }}); }}
+         function sendValue(value) {{ if (window.Streamlit) Streamlit.setComponentValue({{ text: value, type: "stt_result" }}); }}
 
          if (SpeechRecognition) {{
              if (!recognition) {{
-                 // console.log("STT: Initializing SpeechRecognition."); // Reduce noise
                  recognition = new SpeechRecognition();
                  window.stt_recognition = recognition;
                  recognition.continuous = false; recognition.interimResults = false;
@@ -295,10 +289,8 @@ stt_component_value = components.html(
              }}
 
              if (shouldBeListening && !window.stt_listening) {{
-                 // console.log("STT: Attempting to start..."); // Reduce noise
                  try {{ recognition.start(); }} catch (e) {{ if (e.name !== 'InvalidStateError') {{ if(statusDiv) statusDiv.textContent = `Start Error: ${{e.message}}`; }} }}
              }} else if (!shouldBeListening && window.stt_listening) {{
-                 // console.log("STT: Attempting to stop..."); // Reduce noise
                  try {{ recognition.stop(); }} catch(e) {{ /* Ignore */ }}
              }}
              if (statusDiv) {{ statusDiv.textContent = shouldBeListening ? (window.stt_listening ? 'Listening...' : 'Mic Starting...') : 'Mic idle.'; }}
@@ -315,7 +307,6 @@ recognized_text = ""
 if isinstance(stt_component_value, dict) and stt_component_value.get("type") == "stt_result":
     new_text = stt_component_value.get("text", "")
     if new_text and new_text != st.session_state.last_stt_processed:
-         # st.write(f"STT Result Received: {new_text}") # Debug print
          recognized_text = new_text
          st.session_state.last_stt_processed = new_text
          st.session_state.stt_output = recognized_text
@@ -324,20 +315,15 @@ if isinstance(stt_component_value, dict) and stt_component_value.get("type") == 
 
 # --- LLM Model Selection ---
 # AVAILABLE_GROQ_MODELS already defined globally
-
-# Initialize state variable for LLM model selection if needed
 if "selected_model_name" not in st.session_state:
     st.session_state.selected_model_name = AVAILABLE_GROQ_MODELS[0]
 
-# LLM Model selection dropdown
 selected_llm_model_name = st.sidebar.selectbox(
     "Select LLM Model:", options=AVAILABLE_GROQ_MODELS, key="llm_model_selector",
     index=AVAILABLE_GROQ_MODELS.index(st.session_state.selected_model_name) if st.session_state.selected_model_name in AVAILABLE_GROQ_MODELS else 0
 )
-# Update session state if the LLM selection changes
 if selected_llm_model_name != st.session_state.selected_model_name:
     st.session_state.selected_model_name = selected_llm_model_name
-    # Rerun needed because the chain/memory depends on the model name
     st.rerun()
 st.sidebar.markdown(f"**Current LLM:** `{st.session_state.selected_model_name}`")
 
@@ -353,7 +339,6 @@ def initialize_or_get_chain_mcp(model_name, user_id):
     messages_key = f"messages_{user_id}"
     current_model_key = f"current_model_for_user_{user_id}"
 
-    # Re-initialize chain if model selection changed for this user
     if st.session_state.get(current_model_key) != model_name:
         keys_to_delete = [k for k in st.session_state if k.startswith(f"conversation_chain_{user_id}_") or k.startswith(f"memory_{user_id}_")]
         for k in keys_to_delete:
@@ -382,11 +367,10 @@ def initialize_or_get_chain_mcp(model_name, user_id):
         ])
         chain = ConversationChain(llm=llm, prompt=prompt_template, memory=st.session_state[memory_key], verbose=False)
         st.session_state[chain_key] = chain
-        st.session_state[current_model_key] = model_name # Track model used for this chain
+        st.session_state[current_model_key] = model_name
 
     return st.session_state[chain_key]
 
-# Get the chain based on the *currently selected* LLM model name in session state
 conversation_chain = initialize_or_get_chain_mcp(st.session_state.selected_model_name, user_id)
 messages_key = f"messages_{user_id}"
 if messages_key not in st.session_state: st.session_state[messages_key] = []
@@ -412,36 +396,27 @@ if user_input_text:
     st.session_state.stt_output = ""; st.session_state.last_stt_processed = None
 elif user_input_stt:
     final_user_input = user_input_stt; input_source = "stt"
-    st.session_state.stt_output = "" # Clear state immediately
+    st.session_state.stt_output = ""
 
 # Process input if received from either source
 if final_user_input:
-    # st.write(f"Processing input ({input_source}): {final_user_input}") # Debug print
-    # Add user message to display state and save to DB
     if not st.session_state[messages_key] or st.session_state[messages_key][-1].get("content") != final_user_input or st.session_state[messages_key][-1].get("role") != "user":
         st.session_state[messages_key].append({"role": "user", "content": final_user_input})
-        # Rerun will handle display update if input came from STT
         if input_source == "text":
              with st.chat_message("user"): st.markdown(final_user_input)
 
     user_mcp_event = create_mcp_event(user_id, "user", final_user_input)
     save_mcp_event_to_mongo(user_mcp_event)
 
-    # Get response from LLM
     with st.spinner(f"Thinking... ({st.session_state.selected_model_name})"):
         try:
             response = conversation_chain.predict(input=final_user_input)
-            # st.write(f"LLM Response: {response}") # Debug print
-
             st.session_state[messages_key].append({"role": "assistant", "content": response})
             assistant_mcp_event = create_mcp_event(user_id, "assistant", response, model_name=st.session_state.selected_model_name)
             save_mcp_event_to_mongo(assistant_mcp_event)
-
             st.session_state.text_to_speak_trigger = response
             st.session_state.last_spoken_content = response
-
-            st.rerun() # Rerun to update display and trigger TTS
-
+            st.rerun()
         except Exception as e:
             st.error(f"An error occurred while getting response: {e}")
 
@@ -453,17 +428,17 @@ selected_voice = st.session_state.selected_voice_name # Use current selection
 if tts_enabled and text_to_speak:
     st.session_state.text_to_speak_trigger = None # Clear trigger BEFORE calling component
 
+    # *** FIX: Use correct Python variable names when calling json.dumps ***
     components.html(
         f"""
         <script>
             // TTS Trigger JS (with robust voice loading)
-            const textToSpeak = {json.dumps(text_for_js)}; // Renamed variable for clarity
-            const voiceNameToUse = {json.dumps(voice_for_js)}; // Renamed variable for clarity
+            const textToSpeak = {json.dumps(text_to_speak)};      // Use text_to_speak
+            const voiceNameToUse = {json.dumps(selected_voice)}; // Use selected_voice
 
             function speak(text, voiceName) {{
                 const synth = window.speechSynthesis;
                 const isTTSEnabled = {str(tts_enabled).lower()};
-                // console.log("TTS Trigger: Trying to speak:", text, "Voice:", voiceName, "Enabled:", isTTSEnabled); // Reduce noise
                 if (!isTTSEnabled || !text) return;
 
                 let voices = synth.getVoices();
@@ -472,7 +447,6 @@ if tts_enabled and text_to_speak:
                     setTimeout(() => {{
                         voices = synth.getVoices();
                         if (!voices || voices.length === 0) {{ console.error("TTS Trigger: Voices still not ready."); return; }}
-                        // console.log("TTS Trigger: Voices loaded on retry."); // Reduce noise
                         _executeSpeak(text, voiceName, voices, synth);
                     }}, 300);
                     return;
@@ -481,27 +455,29 @@ if tts_enabled and text_to_speak:
             }}
 
             function _executeSpeak(text, voiceName, voices, synth) {{
-                 if (synth.speaking) {{ synth.cancel(); }} // Cancel previous speech
+                 if (synth.speaking) {{ synth.cancel(); }}
                  const utterThis = new SpeechSynthesisUtterance(text);
                  utterThis.onerror = (event) => console.error("TTS Trigger Error:", event);
-                 // utterThis.onend = () => console.log("TTS Trigger: Speech finished."); // Reduce noise
 
                  let voiceToUse = null;
-                 // Find voice logic... (ensure voices array is valid)
                  if(voices && voices.length > 0) {{
                      if (voiceName === "{DEFAULT_VOICE_NAME}") {{ voiceToUse = voices.find(v => v.default) || voices[0]; }}
-                     else if (voiceName === "{MUFASA_VOICE_NAME}") {{ /* ...heuristic... */ voiceToUse = voices.find(...) || voices.find(v => v.default) || voices[0]; }}
+                     else if (voiceName === "{MUFASA_VOICE_NAME}") {{
+                         // Re-find heuristic voice; internal_name mapping isn't passed here
+                         let mufasaOption = voices.find(v => v.lang.startsWith('en') && v.name.toLowerCase().includes('male') /* ...heuristic... */ );
+                         if (mufasaOption) voiceToUse = mufasaOption;
+                         if (!voiceToUse) voiceToUse = voices.find(v => v.default) || voices[0]; // Fallback
+                     }}
                      else {{ voiceToUse = voices.find(v => v.name === voiceName); }}
                  }}
 
-                 if (voiceToUse) {{ utterThis.voice = voiceToUse; /* console.log("TTS Trigger: Using voice:", voiceToUse.name); */ }}
+                 if (voiceToUse) {{ utterThis.voice = voiceToUse; }}
                  else {{ console.warn(`TTS Trigger: Voice '${{voiceName}}' not found.`); }}
 
-                 setTimeout(() => {{ /* console.log("TTS Trigger: Speaking..."); */ synth.speak(utterThis); }}, 100); // Delay speak slightly
+                 setTimeout(() => {{ synth.speak(utterThis); }}, 100);
             }}
 
             if (textToSpeak) {{ speak(textToSpeak, voiceNameToUse); }}
-            // else {{ console.log("TTS Trigger: No text to speak."); }} // Reduce noise
         </script>
         """, height=0 )
 
